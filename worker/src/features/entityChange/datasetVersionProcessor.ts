@@ -11,7 +11,6 @@ import {
   QueueName,
   QueueJobs,
   InMemoryFilterService,
-  type PromptResult,
   getAutomations,
   EntityChangeEventType,
 } from "@langfuse/shared/src/server";
@@ -19,28 +18,29 @@ import { TriggerEventSource } from "@langfuse/shared";
 import { ActionExecutionStatus, JobConfigState } from "@langfuse/shared";
 import { prisma } from "@langfuse/shared/src/db";
 import { v4 } from "uuid";
+import type { DatasetDomain } from "@langfuse/shared";
 
 /**
- * Process prompt change events with in-memory filtering
+ * Process dataset change events with in-memory filtering
  */
-export const promptVersionProcessor = async (
-  event: Extract<EntityChangeEventType, { entityType: "prompt-version" }>,
+export const datasetVersionProcessor = async (
+  event: Extract<EntityChangeEventType, { entityType: "dataset" }>,
 ): Promise<void> => {
   try {
     logger.info(
-      `Processing prompt version change event for prompt ${event.promptId} for project ${event.projectId}`,
+      `Processing dataset change event for dataset ${event.datasetId} for project ${event.projectId}`,
       { event: JSON.stringify(event, null, 2) },
     );
 
-    // Get active prompt triggers
+    // Get active dataset triggers
     const triggers = await getTriggerConfigurations({
       projectId: event.projectId,
-      eventSource: TriggerEventSource.Prompt,
+      eventSource: TriggerEventSource.Dataset,
       status: JobConfigState.ACTIVE,
     });
 
-    logger.debug(`Found ${triggers.length} active prompt triggers`, {
-      promptId: event.promptId,
+    logger.debug(`Found ${triggers.length} active dataset triggers`, {
+      datasetId: event.datasetId,
       projectId: event.projectId,
       action: event.action,
     });
@@ -48,9 +48,9 @@ export const promptVersionProcessor = async (
     // Process each trigger
     for (const trigger of triggers) {
       try {
-        // Create a unified data object that includes both prompt data and the action
+        // Create a unified data object that includes both dataset data and the action
         const eventData = {
-          ...event.prompt,
+          ...event.dataset,
           action: event.action,
         };
 
@@ -75,7 +75,7 @@ export const promptVersionProcessor = async (
 
         if (!eventMatches) {
           logger.debug(`Event doesn't match trigger ${trigger.id} filters`, {
-            promptId: event.promptId,
+            datasetId: event.datasetId,
             projectId: event.projectId,
             action: event.action,
           });
@@ -83,7 +83,7 @@ export const promptVersionProcessor = async (
         }
 
         logger.debug(`Trigger ${trigger.id} matches, executing actions`, {
-          promptId: event.promptId,
+          datasetId: event.datasetId,
           projectId: event.projectId,
           action: event.action,
         });
@@ -110,10 +110,7 @@ export const promptVersionProcessor = async (
             }
 
             await enqueueAutomationAction({
-              promptData: {
-                ...event.prompt,
-                resolutionGraph: null,
-              },
+              datasetData: event.dataset,
               action: event.action,
               triggerId: trigger.id,
               actionId,
@@ -123,31 +120,31 @@ export const promptVersionProcessor = async (
         );
       } catch (error) {
         logger.error(
-          `Error processing trigger ${trigger.id} for prompt ${event.promptId} for project ${event.projectId}: ${error}`,
+          `Error processing trigger ${trigger.id} for dataset ${event.datasetId} for project ${event.projectId}: ${error}`,
         );
         // Continue processing other triggers instead of failing the entire operation
       }
     }
   } catch (error) {
     logger.error(
-      `Failed to process prompt version change event for prompt ${event.promptId} for project ${event.projectId}: ${error}`,
+      `Failed to process dataset change event for dataset ${event.datasetId} for project ${event.projectId}: ${error}`,
     );
     throw error; // Re-throw to trigger retry mechanism
   }
 };
 
 /**
- * Enqueue an automation action for a prompt version change.
- * Handles both webhook and Slack actions by enqueueing to the same webhook queue.
+ * Enqueue an automation action for a dataset change.
+ * Only webhook actions are supported for dataset events.
  */
 async function enqueueAutomationAction({
-  promptData,
+  datasetData,
   action,
   triggerId,
   actionId,
   projectId,
 }: {
-  promptData: PromptResult;
+  datasetData: DatasetDomain;
   action: string;
   triggerId: string;
   actionId: string;
@@ -176,13 +173,12 @@ async function enqueueAutomationAction({
       triggerId,
       actionId,
       status: ActionExecutionStatus.PENDING,
-      sourceId: promptData.id,
+      sourceId: datasetData.id,
       input: {
-        promptName: promptData.name,
-        promptVersion: promptData.version,
-        promptId: promptData.id,
+        datasetName: datasetData.name,
+        datasetId: datasetData.id,
         automationId: automations[0].id,
-        type: "prompt-version",
+        type: "dataset",
       },
     },
   });
@@ -191,7 +187,7 @@ async function enqueueAutomationAction({
     `Created automation execution ${executionId} for project ${projectId} and action ${actionId}`,
   );
 
-  // Queue to webhook processor (handles both webhook and Slack actions)
+  // Queue to webhook processor (only webhook actions supported for dataset events)
   await WebhookQueue.getInstance()?.add(QueueName.WebhookQueue, {
     timestamp: new Date(),
     id: v4(),
@@ -201,11 +197,14 @@ async function enqueueAutomationAction({
       executionId,
       payload: {
         action: action as TriggerEventAction,
-        type: "prompt-version",
-        prompt: {
-          ...promptData,
-          prompt: jsonSchemaNullable.parse(promptData.prompt),
-          config: jsonSchemaNullable.parse(promptData.config),
+        type: "dataset",
+        dataset: {
+          ...datasetData,
+          metadata: jsonSchemaNullable.parse(datasetData.metadata),
+          inputSchema: jsonSchemaNullable.parse(datasetData.inputSchema),
+          expectedOutputSchema: jsonSchemaNullable.parse(
+            datasetData.expectedOutputSchema,
+          ),
         },
       },
     },

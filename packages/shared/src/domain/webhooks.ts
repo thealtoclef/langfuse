@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import { jsonSchema } from "../utils/zod";
 import { EventActionSchema } from "./automations";
+import { DatasetDomainSchema } from "./datasets";
 
 export const WebhookDefaultHeaders = {
   "content-type": "application/json",
@@ -10,13 +11,13 @@ export const WebhookDefaultHeaders = {
 export const WebhookOutboundBaseSchema = z.object({
   id: z.string(),
   timestamp: z.coerce.date(),
-  type: z.literal("prompt-version"),
   apiVersion: z.literal("v1"),
   action: EventActionSchema,
 });
 
 export const PromptWebhookOutboundSchema = z
   .object({
+    type: z.literal("prompt-version"),
     prompt: z.object({
       id: z.string(),
       name: z.string(),
@@ -35,6 +36,15 @@ export const PromptWebhookOutboundSchema = z
   .and(WebhookOutboundBaseSchema);
 
 export type PromptWebhookOutput = z.infer<typeof PromptWebhookOutboundSchema>;
+
+export const DatasetWebhookOutboundSchema = z
+  .object({
+    type: z.literal("dataset"),
+    dataset: DatasetDomainSchema,
+  })
+  .and(WebhookOutboundBaseSchema);
+
+export type DatasetWebhookOutput = z.infer<typeof DatasetWebhookOutboundSchema>;
 
 export const GitHubDispatchWebhookOutboundSchema = z.object({
   event_type: z.string(),

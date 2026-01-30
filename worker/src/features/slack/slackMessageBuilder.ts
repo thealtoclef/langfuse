@@ -9,7 +9,7 @@ export class SlackMessageBuilder {
   /**
    * Build Block Kit message for prompt version events
    */
-  static buildPromptVersionMessage(payload: WebhookInput["payload"]): any[] {
+  static buildPromptVersionMessage(payload: Extract<WebhookInput["payload"], { type: "prompt-version" }>): any[] {
     const { action, prompt } = payload;
 
     // Determine action emoji and color
@@ -153,7 +153,7 @@ export class SlackMessageBuilder {
     try {
       switch (payload.type) {
         case "prompt-version":
-          return this.buildPromptVersionMessage(payload);
+          return this.buildPromptVersionMessage(payload as Extract<WebhookInput["payload"], { type: "prompt-version" }>);
         default:
           logger.warn(`Unsupported Slack message type: ${payload.type}`);
           return this.buildFallbackMessage(payload);

@@ -167,8 +167,7 @@ export const WebhookActionForm: React.FC<WebhookActionFormProps> = ({
               </SelectContent>
             </Select>
             <FormDescription>
-              The API version to use for the webhook payload format when prompt
-              events are triggered.
+              The API version to use for the webhook payload format.
             </FormDescription>
             <FormMessage />
           </FormItem>

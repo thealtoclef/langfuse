@@ -7,6 +7,7 @@ import {
 import { BatchTableNames } from "../interfaces/tableNames";
 import { EventActionSchema } from "../domain";
 import { PromptDomainSchema } from "../domain/prompts";
+import { DatasetDomainSchema } from "../domain/datasets";
 import { ObservationAddToDatasetConfigSchema } from "../features/batchAction/addToDatasetTypes";
 import { EvalTargetObjectSchema } from "../features/evals/types";
 
@@ -215,11 +216,18 @@ export const NotificationEventSchema = z.discriminatedUnion("type", [
   // Future notification types can be added here
 ]);
 
-export const WebhookOutboundEnvelopeSchema = z.object({
-  prompt: PromptDomainSchema,
-  action: EventActionSchema,
-  type: z.literal("prompt-version"),
-});
+export const WebhookOutboundEnvelopeSchema = z.discriminatedUnion("type", [
+  z.object({
+    prompt: PromptDomainSchema,
+    action: EventActionSchema,
+    type: z.literal("prompt-version"),
+  }),
+  z.object({
+    dataset: DatasetDomainSchema,
+    action: EventActionSchema,
+    type: z.literal("dataset"),
+  }),
+]);
 
 export const WebhookInputSchema = z.object({
   projectId: z.string(),
@@ -237,7 +245,13 @@ export const EntityChangeEventSchema = z.discriminatedUnion("entityType", [
     action: EventActionSchema,
     prompt: PromptDomainSchema,
   }),
-  // Add other entity types here in the future
+  z.object({
+    entityType: z.literal("dataset"),
+    projectId: z.string(),
+    datasetId: z.string(),
+    action: EventActionSchema,
+    dataset: DatasetDomainSchema,
+  }),
 ]);
 export type EntityChangeEventType = z.infer<typeof EntityChangeEventSchema>;
 

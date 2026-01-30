@@ -1,6 +1,7 @@
 import {
   InternalServerError,
   PromptWebhookOutboundSchema,
+  DatasetWebhookOutboundSchema,
   WebhookDefaultHeaders,
   ActionExecutionStatus,
   LangfuseNotFoundError,
@@ -69,6 +70,16 @@ export const executeWebhook = async (
     }
 
     // Route to appropriate handler based on action type
+    // Dataset events only support WEBHOOK actions
+    if (
+      input.payload.type === "dataset" &&
+      automation.action.type !== "WEBHOOK"
+    ) {
+      throw new InternalServerError(
+        `Dataset events only support WEBHOOK actions, but got ${automation.action.type}`,
+      );
+    }
+
     if (automation.action.type === "WEBHOOK") {
       await executeWebhookAction({
         input,
@@ -350,28 +361,62 @@ async function executeWebhookAction({
 
   const webhookConfig = actionConfig.config;
 
-  // Validate and prepare webhook payload
-  const validatedPayload = PromptWebhookOutboundSchema.safeParse({
-    id: input.executionId,
-    timestamp: new Date(),
-    type: input.payload.type,
-    apiVersion: "v1",
-    action: input.payload.action,
-    prompt: input.payload.prompt,
-  });
+  // Validate and prepare webhook payload based on type
+  let validatedPayload;
+  let webhookPayload: string;
 
-  if (!validatedPayload.success) {
+  if (input.payload.type === "prompt-version") {
+    const promptPayload = input.payload; // Type narrowed to prompt-version
+    validatedPayload = PromptWebhookOutboundSchema.safeParse({
+      id: input.executionId,
+      timestamp: new Date(),
+      type: promptPayload.type,
+      apiVersion: "v1",
+      action: promptPayload.action,
+      prompt: promptPayload.prompt,
+    });
+
+    if (!validatedPayload.success) {
+      throw new InternalServerError(
+        `Invalid webhook payload: ${validatedPayload.error.message}`,
+      );
+    }
+
+    // Prepare webhook payload with prompt always last
+    const { prompt, ...otherFields } = validatedPayload.data;
+    webhookPayload = JSON.stringify({
+      ...otherFields,
+      prompt,
+    });
+  } else if (input.payload.type === "dataset") {
+    const datasetPayload = input.payload; // Type narrowed to dataset
+    validatedPayload = DatasetWebhookOutboundSchema.safeParse({
+      id: input.executionId,
+      timestamp: new Date(),
+      type: datasetPayload.type,
+      apiVersion: "v1",
+      action: datasetPayload.action,
+      dataset: datasetPayload.dataset,
+    });
+
+    if (!validatedPayload.success) {
+      throw new InternalServerError(
+        `Invalid webhook payload: ${validatedPayload.error.message}`,
+      );
+    }
+
+    // Prepare webhook payload with dataset always last
+    const { dataset, ...otherFields } = validatedPayload.data;
+    webhookPayload = JSON.stringify({
+      ...otherFields,
+      dataset,
+    });
+  } else {
+    const _exhaustive: never = input.payload;
     throw new InternalServerError(
-      `Invalid webhook payload: ${validatedPayload.error.message}`,
+      `Unsupported payload type: ${(_exhaustive as any).type}`,
     );
   }
-
-  // Prepare webhook payload with prompt always last
-  const { prompt, ...otherFields } = validatedPayload.data;
-  const webhookPayload = JSON.stringify({
-    ...otherFields,
-    prompt,
-  });
 
   // Prepare headers with signature if secret exists
   const requestHeaders: Record<string, string> = {};
@@ -447,6 +492,13 @@ async function executeGitHubDispatchAction({
   }
 
   const githubConfig = actionConfig.config;
+
+  // GitHub Dispatch only supports prompt-version events
+  if (input.payload.type !== "prompt-version") {
+    throw new InternalServerError(
+      `GitHub Dispatch actions only support prompt-version events, but got ${input.payload.type}`,
+    );
+  }
 
   // Validate and prepare Langfuse payload
   const validatedPayload = PromptWebhookOutboundSchema.safeParse({

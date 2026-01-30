@@ -4,13 +4,17 @@ import { z } from "zod/v4";
 
 export enum TriggerEventSource {
   Prompt = "prompt",
+  Dataset = "dataset",
 }
 
 export const EventActionSchema = z.enum(["created", "updated", "deleted"]);
 
 export type TriggerEventAction = z.infer<typeof EventActionSchema>;
 
-export const TriggerEventSourceSchema = z.enum([TriggerEventSource.Prompt]);
+export const TriggerEventSourceSchema = z.enum([
+  TriggerEventSource.Prompt,
+  TriggerEventSource.Dataset,
+]);
 
 export type TriggerDomain = Omit<
   Trigger,
@@ -38,10 +42,14 @@ export type ActionDomainWithSecrets = Omit<Action, "config"> & {
 
 export const ActionTypeSchema = z.enum(["WEBHOOK", "SLACK", "GITHUB_DISPATCH"]);
 
-export const AvailableWebhookApiSchema = z.record(
-  z.enum(["prompt"]),
-  z.enum(["v1"]),
-);
+export const AvailableWebhookApiSchema = z
+  .object({
+    prompt: z.enum(["v1"]).optional(),
+    dataset: z.enum(["v1"]).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "At least one apiVersion key must be provided",
+  });
 
 export const RequestHeaderSchema = z.object({
   secret: z.boolean(),

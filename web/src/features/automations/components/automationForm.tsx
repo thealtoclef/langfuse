@@ -36,6 +36,7 @@ import {
   type ActionTypes,
   type JobConfigState,
   webhookActionFilterOptions,
+  datasetActionFilterOptions,
 } from "@langfuse/shared";
 import { InlineFilterBuilder } from "@/src/features/filters/components/filter-builder";
 import { DeleteAutomationButton } from "./DeleteAutomationButton";
@@ -64,7 +65,19 @@ const githubDispatchSchema = z.object({
 // Define the TriggerEventSource enum directly in this file to match the backend
 enum TriggerEventSource {
   Prompt = "prompt",
+  Dataset = "dataset",
 }
+
+// Map eventSource to filter options function
+// This makes it easy to add new event sources: just add them to TriggerEventSource enum
+// and add an entry here
+const EVENT_SOURCE_TO_FILTER_OPTIONS: Record<
+  TriggerEventSource,
+  () => ReturnType<typeof webhookActionFilterOptions>
+> = {
+  [TriggerEventSource.Dataset]: datasetActionFilterOptions,
+  [TriggerEventSource.Prompt]: webhookActionFilterOptions,
+};
 
 // Define schemas for form validation
 const baseFormSchema = z.object({
@@ -175,13 +188,11 @@ export const AutomationForm = ({
       return {
         ...baseValues,
         actionType: "WEBHOOK" as const,
-        eventSource: TriggerEventSource.Prompt,
+        eventSource: baseValues.eventSource,
         webhook: {
           url: webhookDefaults.webhook.url || "",
           headers: webhookDefaults.webhook.headers || [],
-          apiVersion: webhookDefaults.webhook.apiVersion || {
-            prompt: "v1" as const,
-          },
+          apiVersion: webhookDefaults.webhook.apiVersion,
         },
       };
     } else if (actionType === "SLACK") {
@@ -191,7 +202,7 @@ export const AutomationForm = ({
       return {
         ...baseValues,
         actionType: "SLACK" as const,
-        eventSource: TriggerEventSource.Prompt,
+        eventSource: baseValues.eventSource,
         slack: {
           channelId: slackDefaults.slack.channelId || "",
           channelName: slackDefaults.slack.channelName || "",
@@ -205,7 +216,7 @@ export const AutomationForm = ({
       return {
         ...baseValues,
         actionType: "GITHUB_DISPATCH" as const,
-        eventSource: TriggerEventSource.Prompt,
+        eventSource: baseValues.eventSource,
         githubDispatch: {
           url: githubDefaults.githubDispatch.url || "",
           eventType: githubDefaults.githubDispatch.eventType || "",
@@ -429,8 +440,8 @@ export const AutomationForm = ({
                       <SelectItem value={TriggerEventSource.Prompt}>
                         Prompt
                       </SelectItem>
-                      <SelectItem disabled={true} value="planned">
-                        More coming soon...
+                      <SelectItem value={TriggerEventSource.Dataset}>
+                        Dataset
                       </SelectItem>
                     </SelectContent>
                   </Select>
@@ -490,7 +501,16 @@ export const AutomationForm = ({
                   <FormLabel>Filter</FormLabel>
                   <FormControl>
                     <InlineFilterBuilder
-                      columns={webhookActionFilterOptions()}
+                      columns={
+                        (() => {
+                          const eventSource = (form.watch("eventSource") as TriggerEventSource) || TriggerEventSource.Prompt;
+                          const filterOptionsFn = EVENT_SOURCE_TO_FILTER_OPTIONS[eventSource];
+                          if (!filterOptionsFn) {
+                            throw new Error(`No filter options mapping found for eventSource: ${eventSource}`);
+                          }
+                          return filterOptionsFn();
+                        })()
+                      }
                       filterState={field.value || []}
                       onChange={field.onChange}
                       disabled={

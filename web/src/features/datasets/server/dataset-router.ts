@@ -72,6 +72,8 @@ import {
 } from "@/src/features/datasets/server/actions/createDataset";
 import { type BulkDatasetItemValidationError } from "@langfuse/shared";
 import { v4 } from "uuid";
+import { datasetChangeEventSourcing } from "./datasetChangeEventSourcing";
+import { DatasetDomainSchema } from "@langfuse/shared";
 
 // Batch size kept small (100) as items may have large input/output/metadata JSON
 const DUPLICATE_DATASET_ITEMS_BATCH_SIZE = 100;
@@ -846,6 +848,24 @@ export const datasetRouter = createTRPCRouter({
           after: dataset,
         });
 
+        // Queue dataset change event for automations
+        // Note: itemsUpdatedAt will be computed in datasetChangeEventSourcing
+        const datasetDomain = DatasetDomainSchema.parse({
+          id: dataset.id,
+          name: dataset.name,
+          projectId: dataset.projectId,
+          description: dataset.description,
+          metadata: dataset.metadata,
+          remoteExperimentUrl: dataset.remoteExperimentUrl,
+          remoteExperimentPayload: dataset.remoteExperimentPayload,
+          inputSchema: dataset.inputSchema,
+          expectedOutputSchema: dataset.expectedOutputSchema,
+          itemsUpdatedAt: null, // Will be computed in datasetChangeEventSourcing
+          createdAt: dataset.createdAt,
+          updatedAt: dataset.updatedAt,
+        });
+        await datasetChangeEventSourcing(datasetDomain, "created");
+
         return { success: true, dataset };
       } catch (error) {
         // Check if this is a validation error from upsertDataset
@@ -958,6 +978,24 @@ export const datasetRouter = createTRPCRouter({
         after: dataset,
       });
 
+      // Queue dataset change event for automations
+      // Note: itemsUpdatedAt will be computed in datasetChangeEventSourcing
+      const datasetDomain = DatasetDomainSchema.parse({
+        id: dataset.id,
+        name: dataset.name,
+        projectId: dataset.projectId,
+        description: dataset.description,
+        metadata: dataset.metadata,
+        remoteExperimentUrl: dataset.remoteExperimentUrl,
+        remoteExperimentPayload: dataset.remoteExperimentPayload,
+        inputSchema: dataset.inputSchema,
+        expectedOutputSchema: dataset.expectedOutputSchema,
+        itemsUpdatedAt: null, // Will be computed in datasetChangeEventSourcing
+        createdAt: dataset.createdAt,
+        updatedAt: dataset.updatedAt,
+      });
+      await datasetChangeEventSourcing(datasetDomain, "updated");
+
       return { success: true, dataset };
     }),
   deleteDataset: protectedProjectProcedure
@@ -992,6 +1030,24 @@ export const datasetRouter = createTRPCRouter({
           action: "delete",
           before: deletedDataset,
         });
+
+        // Queue dataset change event for automations (before deletion)
+        // Note: itemsUpdatedAt will be computed in datasetChangeEventSourcing
+        const datasetDomain = DatasetDomainSchema.parse({
+          id: deletedDataset.id,
+          name: deletedDataset.name,
+          projectId: deletedDataset.projectId,
+          description: deletedDataset.description,
+          metadata: deletedDataset.metadata,
+          remoteExperimentUrl: deletedDataset.remoteExperimentUrl,
+          remoteExperimentPayload: deletedDataset.remoteExperimentPayload,
+          inputSchema: deletedDataset.inputSchema,
+          expectedOutputSchema: deletedDataset.expectedOutputSchema,
+          itemsUpdatedAt: null, // Will be computed in datasetChangeEventSourcing
+          createdAt: deletedDataset.createdAt,
+          updatedAt: deletedDataset.updatedAt,
+        });
+        await datasetChangeEventSourcing(datasetDomain, "deleted");
 
         return deletedDataset;
       } catch (error) {

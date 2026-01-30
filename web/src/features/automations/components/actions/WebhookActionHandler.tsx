@@ -8,6 +8,7 @@ import {
   WebhookDefaultHeaders,
   type ActionCreate,
   type ActionDomain,
+  TriggerEventSource,
 } from "@langfuse/shared";
 import { z } from "zod/v4";
 
@@ -32,7 +33,20 @@ export const WebhookActionFormSchema = z.object({
   }),
 });
 
-type WebhookActionFormData = z.infer<typeof WebhookActionFormSchema>;
+type WebhookActionFormData = z.infer<typeof WebhookActionFormSchema> & {
+  eventSource?: string;
+};
+
+// Map eventSource to the corresponding apiVersion key in AvailableWebhookApiSchema
+// This makes it easy to add new event sources: just add them to TriggerEventSource enum,
+// add the corresponding key to AvailableWebhookApiSchema, and add an entry here
+const EVENT_SOURCE_TO_API_VERSION_KEY: Record<
+  TriggerEventSource,
+  keyof z.infer<typeof AvailableWebhookApiSchema>
+> = {
+  [TriggerEventSource.Dataset]: "dataset",
+  [TriggerEventSource.Prompt]: "prompt",
+};
 
 // Define a type for header pairs
 type HeaderPair = {
@@ -75,8 +89,8 @@ export class WebhookActionHandler
   }
 
   getDefaultValues(automation?: AutomationDomain): WebhookActionFormData {
-    // Extract apiVersion from existing config
-    let apiVersion = { prompt: "v1" } as const;
+    // Extract apiVersion from existing config, or use default based on eventSource
+    let apiVersion: { prompt?: "v1"; dataset?: "v1" };
     if (
       automation?.action?.type === "WEBHOOK" &&
       automation?.action?.config &&
@@ -84,6 +98,15 @@ export class WebhookActionHandler
       automation.action.config.apiVersion
     ) {
       apiVersion = automation.action.config.apiVersion;
+    } else {
+      // For new automations (automation is undefined), default to Prompt
+      // For existing automations, use the trigger's eventSource
+      const eventSource = automation?.trigger?.eventSource || TriggerEventSource.Prompt;
+      const apiVersionKey = EVENT_SOURCE_TO_API_VERSION_KEY[eventSource];
+      if (!apiVersionKey) {
+        throw new Error(`No apiVersion mapping found for eventSource: ${eventSource}`);
+      }
+      apiVersion = { [apiVersionKey]: "v1" as const };
     }
 
     return {
@@ -169,11 +192,19 @@ export class WebhookActionHandler
       headersObject = formatWebhookHeaders(formData.webhook.headers);
     }
 
+    // Set apiVersion based on eventSource (always "v1" for all event sources)
+    const eventSource = (formData.eventSource as TriggerEventSource) || TriggerEventSource.Prompt;
+    const apiVersionKey = EVENT_SOURCE_TO_API_VERSION_KEY[eventSource];
+    if (!apiVersionKey) {
+      throw new Error(`No apiVersion mapping found for eventSource: ${eventSource}`);
+    }
+    const apiVersion = { [apiVersionKey]: "v1" as const };
+
     return {
       type: "WEBHOOK",
       url: formData.webhook?.url || "",
       requestHeaders: headersObject,
-      apiVersion: formData.webhook?.apiVersion || { prompt: "v1" },
+      apiVersion,
     };
   }
 
